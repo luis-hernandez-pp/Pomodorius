@@ -1,0 +1,269 @@
+<html>
+    <head>
+        <title>POMODORIUS</title>
+        <style>
+            body{
+                background-color: #0295CB;
+                transition: 0.3s ease;
+            }
+            .barra-progreso{
+                background-color: rgba(32,32,32,0.1);
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 0%;
+                border-top-left-radius: 18px;
+                border-top-right-radius: 18px;
+                transition: 0.3s ease;
+            }
+            .info{
+                width: fit-content;
+                text-align: center;
+                font-family: 'Segoe UI', sans-serif;
+                color: white;
+                position: fixed;
+                left: 50%;
+                top: 50%;
+                transform: translate(-50%, -50%);
+            }
+            .info h2{
+                font-size: 3em;
+                margin: 0;
+            }
+            .info h3{
+                font-size: 2.5em;
+                margin: 0.2em 0;
+            }
+            .info h1{
+                font-size: 4em;
+                font-weight: bold;
+                margin: 0.2em 0;
+            }
+            .info button{
+                font-size: 3em;
+                background-color: white;
+                border: 3px solid white;
+                border-radius: 18px;
+                padding: 0 0.2em;
+                color: #0295CB;
+                transition: 0.3s ease;
+            }
+            .info button:hover{
+                color: white !important;
+                background-color: transparent;
+                cursor: pointer;
+            }
+            .info button:active{
+                transform:translateY(4px);
+            }
+            .form-usuario{
+                position: fixed;
+                background-color: rgba(0, 32, 64, 0.9);
+                width: 220px;
+                padding: 1000px;
+                left: 50%;
+                top: 50%;
+                transform: translate(-50%, -50%);
+                z-index: 9;
+            }
+            .mail-usuario{
+                width: 220px;
+                padding: 2px 6px;
+                margin: 0;
+                border-radius: 8px;
+                border: 1px solid white;
+                color: white;
+                background-color: transparent;
+                margin-bottom: 6px;
+                font-size: 16px;
+            }
+            .form-usuario button{
+                width: 220px;
+                padding: 2px 6px;
+                border-radius: 8px;
+                border: 1px solid white;
+                color: black;
+                font-size: 16px;
+            }
+            #sonido{
+                position: absolute;
+                width: 0;
+                height: 0;
+                overflow: hidden;
+                pointer-events: none;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="barra-progreso"></div>
+        <form class="info">
+            <h2 class="emoji">👋</h2>
+            <h3 class="desc">Buen Día</h3>
+            <h1 class="hora"></h1>
+            <button>Clock In</button>
+        </form>
+        <audio id="sonido" preload="auto">
+            <source src="alarm.wav" type="audio/wav">
+        </audio>
+        <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+        <script>
+            const focusColor="#0295CB";
+            const relaxColor="#B3E475";
+            const foodColor="#F49037";
+            
+            var agent_id=null;
+
+            const UP_LIMIT = 50 * 60;
+            const DOWN_START = 10 * 60;
+
+            let intervalId = null;
+            let phase = 'up';
+            let seconds = 0;
+
+            let mode = 'idle';
+
+            if (localStorage.getItem('savedUser') !== null) {
+                agent_id = localStorage.getItem('savedUser');
+            } else {
+                const $form = $('<form>', { class: 'form-usuario' });
+                const $input = $('<input>', {
+                    class: 'mail-usuario',
+                    type: 'text',
+                    placeholder: 'INTRODUCE TU CORREO'
+                });
+                const $button = $('<button>', { text: 'LISTO' });
+
+                $form.append($input).append($button);
+                $('body').prepend($form);
+            }
+
+            $(document).on('submit', '.form-usuario', function (e) {
+                e.preventDefault();
+                const inputVal = $(this).find('.mail-usuario').val().toLowerCase();
+                agent_id = inputVal;
+                localStorage.setItem('savedUser', agent_id);
+                $(this).remove();
+            });
+
+
+            function formatTime(total) {
+                const m = Math.floor(total / 60);
+                const s = total % 60;
+                return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+            }
+
+            function updateBar() {
+                let percent;
+                if (phase === 'up') {
+                    percent = (seconds / UP_LIMIT) * 100;
+                } else {
+                    percent = (seconds / DOWN_START) * 100;
+                }
+                $('.barra-progreso').css('height', percent + '%');
+            }
+
+            function render() {
+                $('.hora').text(formatTime(seconds));
+                updateBar();
+            }
+
+            function tick() {
+            if (phase === 'up') {
+                seconds++;
+                if (seconds >= UP_LIMIT) {
+                    updateTask('relax');
+                    phase = 'down';
+                    seconds = DOWN_START;
+                    $('.desc').text('Relax Time');
+                    $('.emoji').text('😌');
+                    $('body').css({'background-color':relaxColor});
+                    $('.info button').css({'color':relaxColor});
+                    const sfx = $('#sonido')[0];
+                    sfx.currentTime = 0;
+                    sfx.play();
+                }
+            } else {
+                seconds--;
+                if (seconds <= 0) {
+                    updateTask('focus');
+                    phase = 'up';
+                    seconds = 0;
+                    $('.desc').text('Focus Time');
+                    $('.emoji').text('💼');
+                    $('body').css({'background-color':focusColor});
+                    $('.info button').css({'color':focusColor});
+                    const sfx = $('#sonido')[0];
+                    sfx.currentTime = 0;
+                    sfx.play();
+                }
+            }
+            render();
+            }
+
+            function updateTask(taskName){
+                const gscript="https://script.google.com/macros/s/AKfycbw465Db4xwcjQ3SHScAUyK7g6mzipKOGd3v5_SGMLh7NgpqhtubnANjlAvYjnZkF4_J/exec";
+                var gurl = gscript + "?callback=ctrlq&agente=" + encodeURIComponent(agent_id) + "&task=" + encodeURIComponent(taskName) + "&action=update";
+                var request = jQuery.ajax({
+                    crossDomain: true,
+                    url: gurl ,
+                    method: "GET",
+                    dataType: "jsonp",
+                    success: function(data){
+                    },
+                    complete: function(data){
+                    }
+                });
+            }
+
+            function startCycle() {
+                if (intervalId) clearInterval(intervalId);
+                phase = 'up';
+                $('.desc').text('Focus Time');
+                $('.emoji').text('💼');
+                $('.info button').text('Comida');
+                seconds = 0;
+                render();
+                intervalId = setInterval(tick, 1000);//1000 = 1 secz
+            }
+            function enterLunchBreak() {
+                if (intervalId) clearInterval(intervalId);
+                intervalId = null;
+                updateTask('lunch');
+                phase = 'up';
+                seconds = 0;
+                $('.desc').text('Lunch Time');
+                $('.emoji').text('🍽️');
+                $('body').css({'background-color':foodColor});
+                $('.info button').css({'color':foodColor});
+                render();
+            }
+
+            $(document).on('submit', '.info', function (e) {
+            e.preventDefault();
+
+            const was = mode;
+
+            if (mode === 'running') {
+                enterLunchBreak();
+                mode = 'lunch';
+                $('.info button').show();
+            } 
+            else {
+                startCycle();
+                mode = 'running';
+                if (was === 'lunch') {
+                    $('.desc').text('Focus Time');
+                    $('.emoji').text('💼');
+                    $('body').css({'background-color':focusColor});
+                    $('.info button').css({'color':focusColor});
+                    $('.info button').hide();
+                } 
+                else {
+                    $('.info button').show();
+                }
+            }
+        });
+        </script>
+    </body>
+</html>
