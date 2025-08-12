@@ -224,7 +224,7 @@
                 $('.info button').text('Comida');
                 seconds = 0;
                 render();
-                intervalId = setInterval(tick, 1000);//1000 = 1 secz
+                intervalId = setInterval(tick, 10);//1000 = 1 secz
             }
             function enterLunchBreak() {
                 if (intervalId) clearInterval(intervalId);
@@ -266,4 +266,5 @@
         });
         </script>
     </body>
+
 </html>
