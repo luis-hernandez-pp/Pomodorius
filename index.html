@@ -106,166 +106,280 @@
         <audio id="sonido" preload="auto">
             <source src="alarm.wav" type="audio/wav">
         </audio>
-        <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-        <script>
-            const focusColor="#0295CB";
-            const relaxColor="#B3E475";
-            const foodColor="#F49037";
-            
-            var agent_id=null;
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script>
+  const focusColor = "#0295CB";
+  const relaxColor = "#B3E475";
+  const foodColor  = "#F49037";
 
-            const UP_LIMIT = 50 * 60;
-            const DOWN_START = 10 * 60;
+  var agent_id = null;
 
-            let intervalId = null;
-            let phase = 'up';
-            let seconds = 0;
+  const UP_LIMIT   = 50 * 60; // 50 min focus
+  const DOWN_START = 10 * 60; // 10 min relax
 
-            let mode = 'idle';
+  let intervalId = null;
+  let phase = 'up';      // 'up' (count up focus) | 'down' (count down relax)
+  let seconds = 0;       // current seconds in phase
+  let mode = 'idle';     // 'idle' | 'running' | 'lunch'
 
-            if (localStorage.getItem('savedUser') !== null) {
-                agent_id = localStorage.getItem('savedUser');
-            } else {
-                const $form = $('<form>', { class: 'form-usuario' });
-                const $input = $('<input>', {
-                    class: 'mail-usuario',
-                    type: 'text',
-                    placeholder: 'INTRODUCE TU CORREO'
-                });
-                const $button = $('<button>', { text: 'LISTO' });
+  const STATE_KEY = 'pomodoroState'; // single place to persist everything
 
-                $form.append($input).append($button);
-                $('body').prepend($form);
-            }
+  // ---------- Helpers: storage ----------
+  function saveState() {
+    const st = { mode, phase, seconds, lastTs: Date.now() };
+    localStorage.setItem(STATE_KEY, JSON.stringify(st));
+  }
 
-            $(document).on('submit', '.form-usuario', function (e) {
-                e.preventDefault();
-                const inputVal = $(this).find('.mail-usuario').val().toLowerCase();
-                agent_id = inputVal;
-                localStorage.setItem('savedUser', agent_id);
-                $(this).remove();
-            });
+  function loadState() {
+    const raw = localStorage.getItem(STATE_KEY);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+  }
 
+  function clearState() {
+    localStorage.removeItem(STATE_KEY);
+    // If you REALLY want to wipe everything (including savedUser), use:
+    // localStorage.clear();
+  }
 
-            function formatTime(total) {
-                const m = Math.floor(total / 60);
-                const s = total % 60;
-                return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-            }
+  // Clear pomodoro state if we open between 08:00 and 09:30
+  (function maybeClearMorning() {
+    const now = new Date();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    const start = 8 * 60;      // 08:00
+    const end   = 9 * 60 + 30; // 09:30
+    if (mins >= start && mins < end) clearState();
+  })();
 
-            function updateBar() {
-                let percent;
-                if (phase === 'up') {
-                    percent = (seconds / UP_LIMIT) * 100;
-                } else {
-                    percent = (seconds / DOWN_START) * 100;
-                }
-                $('.barra-progreso').css('height', percent + '%');
-            }
+  // ---------- User (unchanged) ----------
+  if (localStorage.getItem('savedUser') !== null) {
+    agent_id = localStorage.getItem('savedUser');
+  } else {
+    const $form = $('<form>', { class: 'form-usuario' });
+    const $input = $('<input>', {
+      class: 'mail-usuario',
+      type: 'text',
+      placeholder: 'INTRODUCE TU CORREO'
+    });
+    const $button = $('<button>', { text: 'LISTO' });
+    $form.append($input).append($button);
+    $('body').prepend($form);
+  }
 
-            function render() {
-                $('.hora').text(formatTime(seconds));
-                updateBar();
-            }
+  $(document).on('submit', '.form-usuario', function (e) {
+    e.preventDefault();
+    const inputVal = $(this).find('.mail-usuario').val().toLowerCase();
+    agent_id = inputVal;
+    localStorage.setItem('savedUser', agent_id);
+    $(this).remove();
+  });
 
-            function tick() {
-            if (phase === 'up') {
-                seconds++;
-                if (seconds >= UP_LIMIT) {
-                    updateTask('relax');
-                    phase = 'down';
-                    seconds = DOWN_START;
-                    $('.desc').text('Relax Time');
-                    $('.emoji').text('😌');
-                    $('body').css({'background-color':relaxColor});
-                    $('.info button').css({'color':relaxColor});
-                    const sfx = $('#sonido')[0];
-                    sfx.currentTime = 0;
-                    sfx.play();
-                }
-            } else {
-                seconds--;
-                if (seconds <= 0) {
-                    updateTask('focus');
-                    phase = 'up';
-                    seconds = 0;
-                    $('.desc').text('Focus Time');
-                    $('.emoji').text('💼');
-                    $('body').css({'background-color':focusColor});
-                    $('.info button').css({'color':focusColor});
-                    const sfx = $('#sonido')[0];
-                    sfx.currentTime = 0;
-                    sfx.play();
-                }
-            }
-            render();
-            }
+  // ---------- UI helpers ----------
+  function formatTime(total) {
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
 
-            function updateTask(taskName){
-                const gscript="https://script.google.com/macros/s/AKfycbw465Db4xwcjQ3SHScAUyK7g6mzipKOGd3v5_SGMLh7NgpqhtubnANjlAvYjnZkF4_J/exec";
-                var gurl = gscript + "?callback=ctrlq&agente=" + encodeURIComponent(agent_id) + "&task=" + encodeURIComponent(taskName) + "&action=update";
-                var request = jQuery.ajax({
-                    crossDomain: true,
-                    url: gurl ,
-                    method: "GET",
-                    dataType: "jsonp",
-                    success: function(data){
-                    },
-                    complete: function(data){
-                    }
-                });
-            }
+  function updateBar() {
+    let percent = phase === 'up'
+      ? (seconds / UP_LIMIT) * 100
+      : (seconds / DOWN_START) * 100;
+    $('.barra-progreso').css('height', Math.max(0, Math.min(100, percent)) + '%');
+  }
 
-            function startCycle() {
-                if (intervalId) clearInterval(intervalId);
-                phase = 'up';
-                $('.desc').text('Focus Time');
-                $('.emoji').text('💼');
-                $('.info button').text('Comida');
-                seconds = 0;
-                render();
-                intervalId = setInterval(tick, 1000);//1000 = 1 secz
-            }
-            function enterLunchBreak() {
-                if (intervalId) clearInterval(intervalId);
-                intervalId = null;
-                updateTask('lunch');
-                phase = 'up';
-                seconds = 0;
-                $('.desc').text('Lunch Time');
-                $('.emoji').text('🍽️');
-                $('body').css({'background-color':foodColor});
-                $('.info button').css({'color':foodColor});
-                render();
-            }
+  function render() {
+    $('.hora').text(formatTime(seconds));
+    updateBar();
+  }
 
-            $(document).on('submit', '.info', function (e) {
-            e.preventDefault();
+  function setThemeFor(descText, emoji, color) {
+    $('.desc').text(descText);
+    $('.emoji').text(emoji);
+    $('body').css({ 'background-color': color });
+    $('.info button').css({ 'color': color });
+  }
 
-            const was = mode;
+  function ring() {
+    const sfx = $('#sonido')[0];
+    sfx.currentTime = 0;
+    sfx.play();
+  }
 
-            if (mode === 'running') {
-                enterLunchBreak();
-                mode = 'lunch';
-                $('.info button').show();
-            } 
-            else {
-                startCycle();
-                mode = 'running';
-                if (was === 'lunch') {
-                    $('.desc').text('Focus Time');
-                    $('.emoji').text('💼');
-                    $('body').css({'background-color':focusColor});
-                    $('.info button').css({'color':focusColor});
-                    $('.info button').hide();
-                } 
-                else {
-                    $('.info button').show();
-                }
-            }
-        });
-        </script>
-    </body>
+  // ---------- Task hooks (unchanged) ----------
+  function updateTask(taskName) {
+    const gscript = "https://script.google.com/macros/s/AKfycbw465Db4xwcjQ3SHScAUyK7g6mzipKOGd3v5_SGMLh7NgpqhtubnANjlAvYjnZkF4_J/exec";
+    var gurl = gscript + "?callback=ctrlq&agente=" + encodeURIComponent(agent_id) + "&task=" + encodeURIComponent(taskName) + "&action=update";
+    jQuery.ajax({ crossDomain: true, url: gurl, method: "GET", dataType: "jsonp" });
+  }
 
+  // ---------- Core logic ----------
+  function startCycle() {
+    if (intervalId) clearInterval(intervalId);
+    mode = 'running';
+    phase = 'up';
+    seconds = 0;
+    setThemeFor('Focus Time', '💼', focusColor);
+    $('.info button').text('Comida').hide(); // will show when pressed to lunch
+    render();
+    saveState();
+    intervalId = setInterval(tick, 10); // 1 second ticks
+  }
+
+  function enterLunchBreak() {
+    if (intervalId) clearInterval(intervalId);
+    intervalId = null;
+    updateTask('lunch');
+    mode = 'lunch';
+    phase = 'up';
+    seconds = 0;
+    setThemeFor('Lunch Time', '🍽️', foodColor);
+    render();
+    saveState();
+  }
+
+  // Advance the timer by N seconds (used for catch-up on reopen)
+  function advanceBy(delta) {
+    // Only advance if we're actively running (focus/relax cycle)
+    if (mode !== 'running') return;
+
+    while (delta > 0) {
+      if (phase === 'up') {
+        const remain = UP_LIMIT - seconds;
+        if (delta < remain) {
+          seconds += delta;
+          delta = 0;
+        } else {
+          // finish focus phase
+          delta -= remain;
+          seconds = 0;
+          phase = 'down';
+          updateTask('relax');
+          setThemeFor('Relax Time', '😌', relaxColor);
+          ring();
+          // start relax with full DOWN_START
+          seconds = DOWN_START;
+        }
+      } else { // phase === 'down'
+        if (delta < seconds) {
+          seconds -= delta;
+          delta = 0;
+        } else {
+          // finish relax phase
+          delta -= seconds;
+          seconds = 0;
+          phase = 'up';
+          updateTask('focus');
+          setThemeFor('Focus Time', '💼', focusColor);
+          ring();
+          // start focus at 0
+          seconds = 0;
+        }
+      }
+    }
+  }
+
+  function tick() {
+    const now = Date.now();
+    // Normal 1-second step (we still store lastTs for extra safety)
+    if (phase === 'up') {
+      seconds++;
+      if (seconds >= UP_LIMIT) {
+        updateTask('relax');
+        phase = 'down';
+        seconds = DOWN_START;
+        setThemeFor('Relax Time', '😌', relaxColor);
+        ring();
+      }
+    } else {
+      seconds--;
+      if (seconds <= 0) {
+        updateTask('focus');
+        phase = 'up';
+        seconds = 0;
+        setThemeFor('Focus Time', '💼', focusColor);
+        ring();
+      }
+    }
+    render();
+    saveState(); // persist every tick
+  }
+
+  // ---------- Resume on load ----------
+  (function resumeIfNeeded() {
+    const st = loadState();
+
+    // Backward compatibility with older keys you had
+    if (!st && localStorage.getItem('secondz') !== null) {
+      // Migrate legacy storage to the new state model
+      const legacySeconds = parseInt(localStorage.getItem('secondz'), 10) || 0;
+      mode = 'running';
+      phase = 'up';
+      seconds = legacySeconds;
+      setThemeFor('Focus Time', '💼', focusColor);
+      $('.info button').hide();
+      render();
+      saveState();
+      intervalId = setInterval(tick, 1000);
+      return;
+    }
+
+    if (!st) {
+      // Fresh start
+      $('.desc').text('Buen Día');
+      $('.emoji').text('👋');
+      $('.info button').text('Clock In');
+      render();
+      return;
+    }
+
+    // Restore UI/state
+    mode = st.mode || 'idle';
+    phase = st.phase || 'up';
+    seconds = Number(st.seconds) || 0;
+
+    if (mode === 'running') {
+      // Catch up lost time since lastTs
+      const elapsed = Math.max(0, Math.floor((Date.now() - (st.lastTs || Date.now())) / 1000));
+      advanceBy(elapsed);
+      setThemeFor(phase === 'up' ? 'Focus Time' : 'Relax Time', phase === 'up' ? '💼' : '😌', phase === 'up' ? focusColor : relaxColor);
+      $('.info button').hide();
+      render();
+      saveState();
+      intervalId = setInterval(tick, 1000);
+    } else if (mode === 'lunch') {
+      setThemeFor('Lunch Time', '🍽️', foodColor);
+      $('.info button').show();
+      render();
+      saveState();
+    } else {
+      // idle
+      $('.desc').text('Buen Día');
+      $('.emoji').text('👋');
+      $('.info button').text('Clock In').show();
+      render();
+      saveState();
+    }
+  })();
+
+  // ---------- Button ("Clock In" / "Comida") ----------
+  $(document).on('submit', '.info', function (e) {
+    e.preventDefault();
+    const was = mode;
+
+    if (mode === 'running') {
+      enterLunchBreak();
+      $('.info button').show();
+    } else {
+      startCycle();
+      if (was === 'lunch') {
+        setThemeFor('Focus Time', '💼', focusColor);
+        $('.info button').hide();
+      } else {
+        $('.info button').show();
+      }
+    }
+  });
+</script>
+</body>
 </html>
-
